@@ -2,8 +2,8 @@ package ar.edu.unahur.obj2.catering;
 
 import ar.edu.unahur.obj2.catering.excepciones.DescuentoInvalidoException;
 import ar.edu.unahur.obj2.catering.excepciones.PrecioNegativoException;
-import ar.edu.unahur.obj2.catering.modelo.Menu;
-import ar.edu.unahur.obj2.catering.modelo.Servicio;
+import ar.edu.unahur.obj2.catering.modelo.*;
+import ar.edu.unahur.obj2.catering.modelo.adicionales.*;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -25,7 +25,7 @@ public class MesaServidaTest {
 
     @BeforeEach
     void setUp() {
-        // servicios del catalogo inicial
+        // catalogo inicial
         entradas = new Servicio("Mesa de entradas", 80000);
         parrillada = new Servicio("Parrillada completa", 240000);
         dulce = new Servicio("Mesa dulce", 60000);
@@ -33,7 +33,6 @@ public class MesaServidaTest {
         dj = new Servicio("DJ y sonido", 120000);
         brindis = new Servicio("Brindis de bienvenida", 50000);
 
-        // menu simples
         menuParrillero = new Menu("Menú Parrillero", 10);
         menuParrillero.agregarComponente(entradas);
         menuParrillero.agregarComponente(parrillada);
@@ -43,12 +42,13 @@ public class MesaServidaTest {
         packFiesta.agregarComponente(tragos);
         packFiesta.agregarComponente(dj);
 
-        // menu anidado
         eventoCompleto = new Menu("Evento Completo", 20);
         eventoCompleto.agregarComponente(menuParrillero);
         eventoCompleto.agregarComponente(packFiesta);
         eventoCompleto.agregarComponente(brindis);
     }
+
+    // --- ETAPA 1 ---
 
     @Test
     void dadoUnServicioConPrecioNegativo_alCrearlo_lanzaPrecioNegativoException() {
@@ -75,5 +75,46 @@ public class MesaServidaTest {
         assertEquals(6, eventoCompleto.getCantidadServicios());
         assertTrue(eventoCompleto.incluyeServicio("DJ y sonido"));
         assertFalse(eventoCompleto.incluyeServicio("Fotógrafo"));
+    }
+
+    // --- ETAPA 2 ---
+
+    @Test
+    void dadoUnServicioNocturnoAplicadoAntesQueMozos_alCalcularPrecio_elOrdenAlteraElPrecioFinal() {
+        Propuesta opc1 = new ServicioNocturno(new MozosAdicionales(menuParrillero));
+        assertEquals(432000, opc1.getPrecio());
+        assertEquals("Menú Parrillero + Mozos adicionales + Servicio nocturno", opc1.getDescripcion());
+
+        Propuesta opc2 = new MozosAdicionales(new ServicioNocturno(menuParrillero));
+        assertEquals(428400, opc2.getPrecio());
+        assertEquals("Menú Parrillero + Servicio nocturno + Mozos adicionales", opc2.getDescripcion());
+    }
+
+    @Test
+    void dadasVariasCombinacionesDeAdicionales_alConsultar_calculaCorrectamente() {
+        Propuesta brindisDobleVajilla = new VajillaPremium(new VajillaPremium(brindis));
+        assertEquals(74000, brindisDobleVajilla.getPrecio());
+
+        Propuesta dulceDobleNocturno = new ServicioNocturno(new ServicioNocturno(dulce));
+        assertEquals(86400, dulceDobleNocturno.getPrecio());
+
+        Propuesta eventoVajilla = new VajillaPremium(eventoCompleto);
+        assertEquals(530800, eventoVajilla.getPrecio());
+    }
+
+    @Test
+    void dadoUnContratoCreado_alActualizarElPrecioDeUnServicio_elImporteContratadoNoCambia() {
+        Propuesta propuestaContratada = new MozosAdicionales(menuParrillero);
+        Contrato contratoLucia = new Contrato("Lucía", propuestaContratada);
+
+        assertEquals(360000, contratoLucia.getImporte());
+        assertEquals("Menú Parrillero + Mozos adicionales", contratoLucia.getDescripcion());
+
+        // Si cambia el precio base de la parrillada despues del contrato
+        parrillada.setPrecio(260000);
+
+        // El menu cambia de precio, pero el contrato guardado en Lucia sigue intacto
+        assertEquals(378000, new MozosAdicionales(menuParrillero).getPrecio());
+        assertEquals(360000, contratoLucia.getImporte());
     }
 }
