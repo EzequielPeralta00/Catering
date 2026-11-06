@@ -1,12 +1,13 @@
 package ar.edu.unahur.obj2.catering;
 
-import ar.edu.unahur.obj2.catering.excepciones.DescuentoInvalidoException;
-import ar.edu.unahur.obj2.catering.excepciones.PrecioNegativoException;
+import ar.edu.unahur.obj2.catering.excepciones.*;
+import ar.edu.unahur.obj2.catering.gestor.*;
 import ar.edu.unahur.obj2.catering.modelo.*;
 import ar.edu.unahur.obj2.catering.modelo.adicionales.*;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -18,6 +19,7 @@ public class MesaServidaTest {
     private Servicio tragos;
     private Servicio dj;
     private Servicio brindis;
+    private Servicio fotografo;
 
     private Menu menuParrillero;
     private Menu packFiesta;
@@ -32,6 +34,7 @@ public class MesaServidaTest {
         tragos = new Servicio("Barra de tragos", 150000);
         dj = new Servicio("DJ y sonido", 120000);
         brindis = new Servicio("Brindis de bienvenida", 50000);
+        fotografo = new Servicio("Fotógrafo", 100000);
 
         menuParrillero = new Menu("Menú Parrillero", 10);
         menuParrillero.agregarComponente(entradas);
@@ -104,17 +107,108 @@ public class MesaServidaTest {
 
     @Test
     void dadoUnContratoCreado_alActualizarElPrecioDeUnServicio_elImporteContratadoNoCambia() {
-        Propuesta propuestaContratada = new MozosAdicionales(menuParrillero);
-        Contrato contratoLucia = new Contrato("Lucía", propuestaContratada);
+        Contrato contratoLucia = new Contrato("Lucía", menuParrillero);
+        assertEquals(342000, contratoLucia.getImporte());
 
-        assertEquals(360000, contratoLucia.getImporte());
-        assertEquals("Menú Parrillero + Mozos adicionales", contratoLucia.getDescripcion());
-
-        // Si cambia el precio base de la parrillada despues del contrato
         parrillada.setPrecio(260000);
 
-        // El menu cambia de precio, pero el contrato guardado en Lucia sigue intacto
-        assertEquals(378000, new MozosAdicionales(menuParrillero).getPrecio());
-        assertEquals(360000, contratoLucia.getImporte());
+        assertEquals(360000, menuParrillero.getPrecio());
+        assertEquals(342000, contratoLucia.getImporte());
+    }
+
+    // --- ETAPA 3 ---
+
+    @Test
+    void dadaUnaSecuenciaInmediataDeModificaciones_alRevertir_vuelveAlEstadoAnterior() {
+        GestorDeCarta gestor = new GestorDeCarta();
+
+        gestor.aplicar(new AgregarPropuestaModificacion(menuParrillero, fotografo));
+        assertEquals(432000, menuParrillero.getPrecio());
+
+        gestor.aplicar(new ActualizarPrecioServicioModificacion(parrillada, 260000));
+        assertEquals(450000, menuParrillero.getPrecio());
+
+        gestor.aplicar(new QuitarPropuestaModificacion(menuParrillero, dulce));
+        assertEquals(396000, menuParrillero.getPrecio());
+
+        // Revertir paso por paso
+        gestor.revertir();
+        assertEquals(450000, menuParrillero.getPrecio());
+
+        gestor.revertir();
+        assertEquals(432000, menuParrillero.getPrecio());
+
+        gestor.revertir();
+        assertEquals(342000, menuParrillero.getPrecio());
+
+        assertThrows(NadaParaRevertirException.class, gestor::revertir);
+    }
+
+    @Test
+    void dadasDosActualizacionesDelMismoServicio_alRevertir_restauraLosPreciosEnOrden() {
+        GestorDeCarta gestor = new GestorDeCarta();
+
+        Modificacion primeraMod = new ActualizarPrecioServicioModificacion(parrillada, 260000);
+        Modificacion segundaMod = new ActualizarPrecioServicioModificacion(parrillada, 300000);
+
+        gestor.aplicar(primeraMod);
+        gestor.aplicar(segundaMod);
+
+        assertEquals(300000, parrillada.getPrecio());
+
+        gestor.revertir();
+        assertEquals(260000, parrillada.getPrecio());
+
+        gestor.revertir();
+        assertEquals(240000, parrillada.getPrecio());
+    }
+
+    @Test
+    void dadoUnLoteExitoso_alAplicarlo_seModificaLaCartaYSePuedeRevertir() {
+        GestorDeCarta gestor = new GestorDeCarta();
+
+        List<Modificacion> lote = List.of(
+            new AgregarPropuestaModificacion(menuParrillero, fotografo),
+            new ActualizarPrecioServicioModificacion(parrillada, 260000),
+            new QuitarPropuestaModificacion(menuParrillero, dulce)
+        );
+
+        gestor.aplicarLote(lote);
+        assertEquals(396000, menuParrillero.getPrecio());
+
+        gestor.revertir();
+        assertEquals(450000, menuParrillero.getPrecio());
+
+        gestor.revertir();
+        gestor.revertir();
+        assertEquals(342000, menuParrillero.getPrecio());
+
+        assertThrows(NadaParaRevertirException.class, gestor::revertir);
+    }
+
+    @Test
+    void dadoUnLoteConUnaModificacionInvalida_alAplicarlo_dejaElCatalogoComoEstaba() {
+        GestorDeCarta gestor = new GestorDeCarta();
+
+        gestor.aplicar(new AgregarPropuestaModificacion(menuParrillero, fotografo));
+        assertEquals(432000, menuParrillero.getPrecio());
+
+        // El segundo elemento falla porque tragos no es componente directo de menuParrillero
+        List<Modificacion> loteConFalla = List.of(
+            new ActualizarPrecioServicioModificacion(parrillada, 260000),
+            new QuitarPropuestaModificacion(menuParrillero, tragos)
+        );
+
+        assertThrows(PropuestaNoIncluidaException.class, () -> gestor.aplicarLote(loteConFalla));
+
+        // Verificación de rollback total del lote
+        assertEquals(432000, menuParrillero.getPrecio());
+        assertEquals(240000, parrillada.getPrecio());
+
+        // Revertir paso previo al lote
+        gestor.revertir();
+        assertEquals(342000, menuParrillero.getPrecio());
+
+        assertThrows(NadaParaRevertirException.class, gestor::revertir);
     }
 }
